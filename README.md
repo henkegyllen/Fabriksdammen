@@ -27,6 +27,18 @@ I AR-läget visas:
 | `s=1` / `s=2` | Skylt 1 (vid intaget) eller skylt 2 (vid ån) |
 | `f=1` / `f=2` | Förslag 1 (via bäckfåran) eller förslag 2 (direkt till nuvarande fåra) |
 | `test=1` | Visar scenen utan kamera, för granskning på dator. `hojd=40` lyfter kameran 40 m. |
+| `kal=1` | Kalibreringsläget för fälttest (se nedan). `gyro=1` tvingar gyroläget även på Android. |
+
+## Kalibreringsläget (`?kal=1`)
+
+För fälttest vid skyltarna, till exempel `?kal=1&s=1`. Det står inte på skyltarna.
+
+- **Startskärmen:** *Ruta − / +* ställer in hur stor del av kamerabilden rutan visar (zoom). Rutans storlek på skärmen påverkar inte vad kameran ser. Det är zoomen som avgör hur långt från skylten man står när fisken fyller rutan. Ställ in den så att fisken fyller rutan från rätt ståpunkt.
+- **AR-vyn:** justera var du faktiskt står jämfört med ståpunkten i datan (fram mot skylten / bak, höger / vänster, i steg om 0,1 m), lyft eller sänk allt, och vrid med ◀ ▶. Gula stolpar visar båda skyltarna: efter start ska stolpen stå i skylten när du vänder dig mot den. Vita stolpar visar hushörn.
+- **📸 Visa värden:** en ruta att skärmdumpa med skylt- och personpunkt enligt datan, justeringarna, den faktiska personpunkten (SWEREF 99 TM och WGS 84), avstånd och riktning mot skylten, zoom, kameraupplösning, skärmstorlek och, på Android, kamerans bildvinkel. Raden längst ner kan kopieras.
+- Värdena sparas i webbläsaren per skylt till nästa gång. *Nollställ* tar bort dem.
+
+Fältvärdena förs sedan in i datan: personpunkten och zoomen i skriptet som skapar `assets/fabriksdammen.json`, och vridningen som `offset` för skylten.
 
 ## Filer
 

@@ -15,7 +15,7 @@
     APP_VERSION måste matcha version.json. Vid varje skarp ändring: höj BÅDA.
   -->
   <script>
-    var APP_VERSION = '2026-11-09a';
+    var APP_VERSION = '2026-11-09b';
     (function () {
       try {
         if (location.search.indexOf('test=') !== -1) return;   /* testläget laddas om för hand */
@@ -118,6 +118,42 @@
     }
     #hint small { color: #ffd27a; font-size: 0.82rem; }
 
+    /* ── Kalibreringsläget (?kal=1) ── */
+    #kal-badge { margin: 0; padding: 4px 12px; border-radius: 999px; background: #ffd27a; color: #2a1a00;
+                 font-size: 0.8rem; font-weight: bold; }
+    #kal-zoom { display: flex; align-items: center; gap: 10px; color: #cfe0ee; font-size: 0.9rem; }
+    #kal-zoom button, .kal-steg { width: 40px; height: 40px; border: none; border-radius: 10px; cursor: pointer;
+                                   background: rgba(255,255,255,0.16); color: #fff; font-size: 1.2rem; }
+    #kal-zoom b { color: #ffd27a; min-width: 3.2em; text-align: center; }
+    #kal-video { font-size: 0.72rem; color: #7f9bb0; font-family: monospace; }
+    #kal-panel { pointer-events: all; background: rgba(0,0,0,0.66); border-radius: 14px; padding: 8px 10px;
+                 width: min(94vw, 420px); color: #fff; }
+    .kal-rad { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+    .kal-rad .namn { flex: 1; font-size: 0.82rem; color: #cfe0ee; }
+    .kal-rad .varde { min-width: 4.6em; text-align: right; font-family: monospace; color: #ffd27a; font-size: 0.85rem; }
+    .kal-steg { width: 36px; height: 34px; font-size: 1rem; }
+    .kal-knappar { display: flex; gap: 8px; margin-top: 6px; }
+    .kal-knappar button { flex: 1; padding: 9px; border: none; border-radius: 10px; cursor: pointer; font-weight: bold;
+                          color: #fff; background: rgba(255,255,255,0.16); }
+    .kal-knappar #kal-visa { background: linear-gradient(90deg, #e6550d, #ff9a5c); }
+    /* Värderutan ligger INUTI #ui-overlay (DOM-overlay-roten) för att synas i WebXR; helt ogenomskinlig
+       så att skärmdumpen blir läsbar. */
+    #varden { position: absolute; inset: 0; z-index: 5000; background: #0a1722; pointer-events: auto;
+              display: flex; align-items: center; justify-content: center; padding: 14px; }
+    #varden .kort { background: #12273a; border: 1px solid #2f4b63; border-radius: 14px; padding: 16px;
+                    width: 440px; max-width: 94vw; max-height: 92vh; overflow-y: auto; color: #fff; }
+    #varden h3 { margin: 0 0 2px; color: #ffd27a; font-size: 1.05rem; }
+    #varden .tid { margin: 0 0 8px; font-family: monospace; font-size: 0.8rem; color: #9fb8cc; }
+    #varden .grupp { margin: 8px 0 2px; font-size: 0.75rem; color: #ff9a5c; text-transform: uppercase; letter-spacing: 0.04em; }
+    #varden .vrad { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 0.86rem;
+                    border-bottom: 1px solid rgba(255,255,255,0.07); }
+    #varden .vrad b { font-family: monospace; color: #8fc8ff; font-weight: normal; text-align: right; }
+    #varden pre { background: #071019; border: 1px solid #2f4b63; border-radius: 8px; padding: 8px; font-size: 0.72rem;
+                  white-space: pre-wrap; word-break: break-all; color: #9fd8a0; margin: 10px 0; }
+    #varden .vknappar { display: flex; gap: 10px; }
+    #varden .vknappar button { flex: 1; padding: 10px; border: none; border-radius: 10px; font-weight: bold;
+                               cursor: pointer; color: #fff; background: rgba(255,255,255,0.16); }
+
     #error-overlay {
       position: fixed; inset: 0; background: #0f2233; color: #fff; display: flex;
       flex-direction: column; align-items: center; justify-content: center; gap: 16px;
@@ -146,6 +182,7 @@
   </a-scene>
 
   <div id="splash">
+    <p id="kal-badge" class="hidden">🔧 Kalibreringsläge</p>
     <h1>Fabriksdammen – ny åfåra</h1>
     <p class="forslag" id="splash-forslag">–</p>
     <p class="skylt" id="splash-skylt">–</p>
@@ -154,6 +191,15 @@
       <video id="cam" class="boxed" autoplay playsinline muted></video>
       <div id="cam-hint">Startar kameran...</div>
     </div>
+    <!-- Kalibreringsläget: hur stor del av kamerabilden rutan visar. Ställ in så att fisken fyller rutan
+         när du står på rätt ståpunkt. -->
+    <div id="kal-zoom" class="hidden">
+      <span>Ruta</span>
+      <button id="zoom-minus" aria-label="Visa mer av bilden">−</button>
+      <b id="zoom-varde">1,0×</b>
+      <button id="zoom-plus" aria-label="Visa mindre av bilden">+</button>
+    </div>
+    <div id="kal-video" class="hidden"></div>
     <button id="start-btn">Starta AR</button>
     <button id="byt-forslag">–</button>
     <div id="splash-status"></div>
@@ -174,6 +220,22 @@
     <div id="badge" class="hidden"></div>
     <div id="hint" class="hidden"></div>
     <div id="ui-bottom" class="hidden">
+      <!-- Kalibreringsläget: var du faktiskt står jämfört med ståpunkten i datan, och scenens höjd -->
+      <div id="kal-panel" class="hidden">
+        <div class="kal-rad"><span class="namn">Jag står längre fram (mot skylten) / bak</span>
+          <button class="kal-steg" data-k="fram" data-d="-0.1">−</button><span class="varde" id="v-fram">0,0 m</span>
+          <button class="kal-steg" data-k="fram" data-d="0.1">+</button></div>
+        <div class="kal-rad"><span class="namn">Jag står längre åt höger / vänster</span>
+          <button class="kal-steg" data-k="sid" data-d="-0.1">−</button><span class="varde" id="v-sid">0,0 m</span>
+          <button class="kal-steg" data-k="sid" data-d="0.1">+</button></div>
+        <div class="kal-rad"><span class="namn">Lyft / sänk allt</span>
+          <button class="kal-steg" data-k="hojd" data-d="-0.1">−</button><span class="varde" id="v-hojd">0,0 m</span>
+          <button class="kal-steg" data-k="hojd" data-d="0.1">+</button></div>
+        <div class="kal-knappar">
+          <button id="kal-nolla">Nollställ</button>
+          <button id="kal-visa">📸 Visa värden</button>
+        </div>
+      </div>
       <div class="rad">
         <button class="knapp" id="btn-forslag">–</button>
         <button class="knapp pa" id="btn-linje">Linjen: 1,5 m över mark</button>
@@ -183,6 +245,18 @@
         <button id="vrid-v" aria-label="Vrid moturs">◀</button>
         <span id="vrid-varde">Vrid 0°</span>
         <button id="vrid-h" aria-label="Vrid medurs">▶</button>
+      </div>
+    </div>
+    <div id="varden" class="hidden">
+      <div class="kort">
+        <h3 id="varden-rubrik">–</h3>
+        <p class="tid" id="varden-tid">–</p>
+        <div id="varden-lista"></div>
+        <pre id="varden-json"></pre>
+        <div class="vknappar">
+          <button id="varden-kopiera">📋 Kopiera</button>
+          <button id="varden-stang">Stäng</button>
+        </div>
       </div>
     </div>
   </div>
@@ -198,6 +272,9 @@
      *   iPhone (gyro):           rotY = riktning + kamerans yaw + justering; stå still och vrid dig.
      * URL: ?s=1|2 (skylt) &f=1|2 (förslag). ?test=1 visar scenen utan kamera (granskning på dator),
      * &hojd=N lyfter testkameran N m.
+     * ?kal=1 = KALIBRERINGSLÄGET för fälttest: ruta-zoom på startskärmen, justering av var man faktiskt står
+     * (fram/bak, sidled) och scenens höjd, markörer vid båda skyltarna och en värderuta att skärmdumpa.
+     * Värdena sparas i webbläsaren per skylt. &gyro=1 tvingar gyroläget även på Android.
      * Data: assets/fabriksdammen.json (skript/ar_export.py i projektet).
      */
     var HEADING_OFFSET = 0;     /* gemensam riktningsrättning (grader, +medurs); per skylt finns 'offset' i datan */
@@ -209,6 +286,8 @@
     var skyltNr = params.get('s') === '2' ? '2' : '1';
     var forslagNr = params.get('f') === '2' ? '2' : '1';
     var testMode = params.get('test') === '1';
+    var kalMode = params.get('kal') === '1';
+    var tvingaGyro = params.get('gyro') === '1';
     var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
                 (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -217,6 +296,8 @@
     var kontrollGrupp = null;
     var linjePaMark = false, visaVatten = false;
     var riktningBas = 0, vridning = 0;
+    var varld = null;           /* gruppen med allt innehåll; flyttas av kalibreringens positionsjustering */
+    var kal = { fram: 0, sid: 0, hojd: 0, zoom: 1 };   /* fram/sid i m sett från ståpunkten mot skylten */
     var dataReady = false, camReady = false, xrSupported = false, xrMode = false;
 
     var $ = function (id) { return document.getElementById(id); };
@@ -375,11 +456,28 @@
       return grp;
     }
 
+    function byggSkyltmarkorer() {
+      /* Kalibreringsläget: orange stolpe vid varje skylt. Vänd dig mot skylten efter start – stolpen ska
+         stå i skylten. Den andra skylten är en kontroll på avstånd. */
+      var grp = new THREE.Group();
+      Object.keys(data.skyltar).forEach(function (k) {
+        var S = data.skyltar[k], fot = lokal(S.skylt[0], S.skylt[1], S.sta[2]);
+        var topp = lokal(S.skylt[0], S.skylt[1], S.sta[2] + 2.2);
+        grp.add(stolpe(fot, topp, 0.03, '#ffd27a', 1));
+        var lbl = etikett(['Skylt ' + k], { farg: '#2a1a00', bakgrund: 'rgba(255,210,122,0.92)', storlek: 0.028 });
+        lbl.position.copy(topp);
+        grp.add(lbl);
+      });
+      return grp;
+    }
+
     function byggScen() {
       var rot = new THREE.Group();
       ['1', '2'].forEach(function (nr) { grupper[nr] = byggForslag(nr); rot.add(grupper[nr].rot); });
       kontrollGrupp = byggKontroll();
       rot.add(kontrollGrupp);
+      if (kalMode) rot.add(byggSkyltmarkorer());
+      varld = rot;
       sceneRoot.setObject3D('fabriksdammen', rot);
       sceneRoot.setAttribute('etikett-skala', '');   /* registrerad i skriptet, därför inte i markeringen */
       uppdateraVisning();
@@ -406,6 +504,116 @@
     function tillampaRiktning() {
       sceneRoot.setAttribute('rotation', '0 ' + (riktningBas + vridning).toFixed(2) + ' 0');
       $('vrid-varde').textContent = 'Vrid ' + (vridning > 0 ? '+' : '') + vridning + '°';
+      if (kalMode) sparaKal();
+    }
+
+    /* ── Kalibreringsläget ── */
+    function forskjutning() {
+      /* fram/sid (m, sett från ståpunkten mot skylten) → ΔE/ΔN i SWEREF 99 TM */
+      var b = skylt.riktning * Math.PI / 180;
+      return { dE: kal.fram * Math.sin(b) + kal.sid * Math.cos(b),
+               dN: kal.fram * Math.cos(b) - kal.sid * Math.sin(b) };
+    }
+    function tillampaPosition() {
+      /* Står man egentligen ΔE/ΔN från ståpunkten flyttas allt motsatt: x −ΔE, z +ΔN (−Z = norr) */
+      var f = forskjutning();
+      if (varld) varld.position.set(-f.dE, kal.hojd, f.dN);
+      $('v-fram').textContent = (kal.fram > 0 ? '+' : '') + sv(kal.fram, 1) + ' m';
+      $('v-sid').textContent = (kal.sid > 0 ? '+' : '') + sv(kal.sid, 1) + ' m';
+      $('v-hojd').textContent = (kal.hojd > 0 ? '+' : '') + sv(kal.hojd, 1) + ' m';
+      if (kalMode) sparaKal();
+    }
+    function tillampaZoom() {
+      /* Rutan visar alltid kamerans hela bredd; zoomen avgör hur stor del av bilden som syns, och därmed
+         hur långt bort man ska stå för att fisken ska fylla rutan. */
+      cam.style.transform = cam.classList.contains('boxed') ? 'scale(' + kal.zoom + ')' : '';
+      $('zoom-varde').textContent = sv(kal.zoom, 1) + '×';
+      if (kalMode) sparaKal();
+    }
+    function kalNyckel() { return 'fabriksdammen-kal-s' + skyltNr; }
+    function sparaKal() {
+      try {
+        localStorage.setItem(kalNyckel(), JSON.stringify({ fram: kal.fram, sid: kal.sid, hojd: kal.hojd,
+                                                           zoom: kal.zoom, vrid: vridning }));
+      } catch (e) { /* privat läge m.m.: värdena syns ändå i värderutan */ }
+    }
+    function laddaKal() {
+      try {
+        var v = JSON.parse(localStorage.getItem(kalNyckel()) || 'null');
+        if (v) { kal.fram = v.fram || 0; kal.sid = v.sid || 0; kal.hojd = v.hojd || 0;
+                 kal.zoom = v.zoom || kal.zoom; return v.vrid || 0; }
+      } catch (e) { /* ignorera */ }
+      return 0;
+    }
+    var sparadVrid = 0;
+
+    /* SWEREF 99 TM-förskjutning (m) → WGS 84 nära ståpunkten. Rutnätsnorr skiljer sig från geografiskt
+       norr med meridiankonvergensen (ca −0,24° här), som räknas in. */
+    function tillWgs(lat0, lon0, dE, dN) {
+      var phi = lat0 * Math.PI / 180, g = (lon0 - 15) * Math.sin(phi) * Math.PI / 180;
+      var n = dN * Math.cos(g) + dE * Math.sin(g), e = dE * Math.cos(g) - dN * Math.sin(g);
+      var mLat = 111132.954 - 559.822 * Math.cos(2 * phi) + 1.175 * Math.cos(4 * phi);
+      var mLon = 111412.84 * Math.cos(phi) - 93.5 * Math.cos(3 * phi);
+      return [lat0 + n / mLat, lon0 + e / mLon];
+    }
+    function dms(v, pos, neg) {
+      var a = Math.abs(v), d = Math.floor(a), m = Math.floor((a - d) * 60), s = ((a - d) * 60 - m) * 60;
+      if (s >= 59.9995) { s = 0; m += 1; }
+      return d + '°' + (m < 10 ? '0' : '') + m + "'" + (s < 10 ? '0' : '') + s.toFixed(3).replace('.', ',') +
+             '"' + (v >= 0 ? pos : neg);
+    }
+    function xrBildvinkel() {
+      try {
+        var xc = scene.renderer.xr.getCamera(), c = xc.cameras && xc.cameras[0];
+        if (!c) return null;
+        var m = c.projectionMatrix.elements;
+        return { h: 2 * Math.atan(1 / m[0]) * 180 / Math.PI, v: 2 * Math.atan(1 / m[5]) * 180 / Math.PI };
+      } catch (e) { return null; }
+    }
+    function visaVarden() {
+      var f = forskjutning();
+      var staE = skylt.sta[0] + f.dE, staN = skylt.sta[1] + f.dN;
+      var dE = skylt.skylt[0] - staE, dN = skylt.skylt[1] - staN;
+      var avst = Math.sqrt(dE * dE + dN * dN), geoRikt = (Math.atan2(dE, dN) * 180 / Math.PI + 360) % 360;
+      var anvRikt = (skylt.riktning + (skylt.offset || 0) + HEADING_OFFSET + vridning + 360) % 360;
+      var wgs = tillWgs(skylt.sta_wgs[0], skylt.sta_wgs[1], f.dE, f.dN);
+      var fov = xrMode ? xrBildvinkel() : null;
+      var tid = new Date();
+      var rader = [
+        ['Skylten (data)', 'E ' + sv(skylt.skylt[0], 2) + '  N ' + sv(skylt.skylt[1], 2)],
+        ['Personpunkt (data)', 'E ' + sv(skylt.sta[0], 2) + '  N ' + sv(skylt.sta[1], 2)],
+        ['Avstånd / riktning (data)', sv(skylt.avstand, 2) + ' m / ' + sv(skylt.riktning, 1) + '°'],
+        '§Justering i fält',
+        ['Vrid', (vridning > 0 ? '+' : '') + vridning + '°'],
+        ['Fram (mot skylten) / sidled', sv(kal.fram, 1) + ' m / ' + sv(kal.sid, 1) + ' m'],
+        ['Höjd', sv(kal.hojd, 1) + ' m'],
+        ['Ruta (zoom)', sv(kal.zoom, 1) + '×'],
+        '§Resultat',
+        ['Faktisk personpunkt (TM)', 'E ' + sv(staE, 2) + '  N ' + sv(staN, 2)],
+        ['Faktisk personpunkt (WGS 84)', dms(wgs[0], 'N', 'S') + ' ' + dms(wgs[1], 'E', 'W')],
+        ['Avstånd till skylten', sv(avst, 2) + ' m'],
+        ['Riktning mot skylten (geometri)', sv(geoRikt, 1) + '°'],
+        ['Riktning som används', sv(anvRikt, 1) + '°'],
+        '§Mobil',
+        ['Läge', xrMode ? 'WebXR (går att gå)' : (testMode ? 'test' : 'gyro (stå still)')],
+        ['Kamera / skärm', (cam.videoWidth || '–') + '×' + (cam.videoHeight || '–') + ' / ' +
+                           innerWidth + '×' + innerHeight + ' @' + (window.devicePixelRatio || 1)],
+        ['Bildvinkel (WebXR)', fov ? sv(fov.h, 1) + '° × ' + sv(fov.v, 1) + '°' : '–']
+      ];
+      $('varden-rubrik').textContent = skylt.namn + ' · förslag ' + forslagNr;
+      $('varden-tid').textContent = tid.toLocaleString('sv-SE') + ' · v' + APP_VERSION;
+      $('varden-lista').innerHTML = rader.map(function (r) {
+        if (typeof r === 'string') return '<div class="grupp">' + r.slice(1) + '</div>';
+        return '<div class="vrad"><span>' + r[0] + '</span><b>' + r[1] + '</b></div>';
+      }).join('');
+      $('varden-json').textContent = JSON.stringify({
+        skylt: skyltNr, tid: tid.toISOString(), version: APP_VERSION, lage: xrMode ? 'webxr' : 'gyro',
+        vrid: vridning, fram: kal.fram, sid: kal.sid, hojd: kal.hojd, zoom: kal.zoom,
+        sta_tm: [+staE.toFixed(2), +staN.toFixed(2)], sta_wgs: [+wgs[0].toFixed(8), +wgs[1].toFixed(8)],
+        riktning_geometri: +geoRikt.toFixed(1), riktning_anvand: +anvRikt.toFixed(1), avstand: +avst.toFixed(2),
+        kamera: [cam.videoWidth || null, cam.videoHeight || null], skarm: [innerWidth, innerHeight],
+        bildvinkel: fov ? [+fov.h.toFixed(1), +fov.v.toFixed(1)] : null });
+      $('varden').classList.remove('hidden');
     }
 
     /* ── Laddning ── */
@@ -415,7 +623,14 @@
         data = d;
         skylt = d.skyltar[skyltNr];
         $('splash-skylt').textContent = skylt.namn;
+        kal.zoom = skylt.zoom || 1;
+        if (kalMode) {
+          sparadVrid = laddaKal();
+          ['kal-badge', 'kal-zoom', 'kal-video'].forEach(function (id) { $(id).classList.remove('hidden'); });
+        }
         byggScen();
+        tillampaZoom();
+        tillampaPosition();
         dataReady = true;
         checkReady();
         if (testMode) startaTest();
@@ -440,9 +655,13 @@
       }).catch(function () {
         $('cam-hint').textContent = 'Kameran nekades – tillåt kamera i webbläsarens inställningar och ladda om sidan.';
       });
-      if (navigator.xr) {
+      if (navigator.xr && !tvingaGyro) {
         navigator.xr.isSessionSupported('immersive-ar').then(function (ok) { xrSupported = ok; });
       }
+      cam.addEventListener('loadedmetadata', function () {
+        $('kal-video').textContent = 'kamera ' + cam.videoWidth + '×' + cam.videoHeight + ' · ' +
+          (xrSupported ? 'WebXR' : 'gyro') + ' · v' + APP_VERSION;
+      });
     }
 
     function checkReady() {
@@ -468,7 +687,7 @@
            fisken. rotY = riktningen rakt av, origo = ståpunkten. ARCore håller sedan allt på plats. */
         xrMode = true;
         $('splash-status').textContent = 'Håll kvar siktet på fisken...';
-        riktningBas = bas; vridning = 0; tillampaRiktning();
+        riktningBas = bas; vridning = kalMode ? sparadVrid : 0; tillampaRiktning();
         sceneRoot.setAttribute('position', '0 0 0');
         if (cam.srcObject) { cam.srcObject.getTracks().forEach(function (t) { t.stop(); }); cam.srcObject = null; }
         scene.enterAR();
@@ -487,10 +706,11 @@
       await waitForOrientation();
       await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); });
       var psi = camEl.object3D.rotation.y * 180 / Math.PI;
-      riktningBas = bas + psi; vridning = 0; tillampaRiktning();
+      riktningBas = bas + psi; vridning = kalMode ? sparadVrid : 0; tillampaRiktning();
 
       document.body.appendChild(cam);
       cam.classList.remove('boxed'); cam.classList.add('fullscreen');
+      tillampaZoom();
       visaArUI();
     });
 
@@ -498,6 +718,10 @@
       splash.classList.add('hidden');
       ['ui-top', 'ui-bottom', 'badge'].forEach(function (id) { $(id).classList.remove('hidden'); });
       var hint = $('hint');
+      if (kalMode) {
+        $('kal-panel').classList.remove('hidden');
+        hint.style.bottom = 'auto'; hint.style.top = '96px';   /* nedre delen upptas av kalibreringspanelen */
+      }
       hint.innerHTML = 'Orange linje = förslagets sträckning, 1,5 m över dagens mark. Vita stolpar = hushörn.<br>' +
         '<small>Står stolparna fel mot husen: vrid med ◀ ▶.' +
         (isIOS && !xrMode ? ' På iPhone: stå kvar och vrid dig.' : '') + '</small>';
@@ -521,11 +745,37 @@
     $('vrid-v').addEventListener('click', function () { vridning -= 1; tillampaRiktning(); });
     $('vrid-h').addEventListener('click', function () { vridning += 1; tillampaRiktning(); });
 
+    Array.prototype.forEach.call(document.querySelectorAll('.kal-steg'), function (k) {
+      k.addEventListener('click', function () {
+        var nyckel = k.getAttribute('data-k');
+        kal[nyckel] = Math.round((kal[nyckel] + parseFloat(k.getAttribute('data-d'))) * 10) / 10;
+        tillampaPosition();
+      });
+    });
+    $('zoom-minus').addEventListener('click', function () {
+      kal.zoom = Math.max(1, Math.round((kal.zoom - 0.1) * 10) / 10); tillampaZoom();
+    });
+    $('zoom-plus').addEventListener('click', function () {
+      kal.zoom = Math.min(6, Math.round((kal.zoom + 0.1) * 10) / 10); tillampaZoom();
+    });
+    $('kal-nolla').addEventListener('click', function () {
+      kal.fram = kal.sid = kal.hojd = 0; vridning = 0; tillampaPosition(); tillampaRiktning();
+    });
+    $('kal-visa').addEventListener('click', visaVarden);
+    $('varden-stang').addEventListener('click', function () { $('varden').classList.add('hidden'); });
+    $('varden-kopiera').addEventListener('click', function () {
+      var t = $('varden-json').textContent;
+      try { navigator.clipboard.writeText(t).then(function () { $('varden-kopiera').textContent = '✓ Kopierat'; }); }
+      catch (e) { /* skärmdumpen räcker */ }
+    });
+
     $('recal-btn').addEventListener('click', function () {
       if (xrMode || testMode) { location.reload(); return; }
       cam.classList.remove('fullscreen'); cam.classList.add('boxed');
       camBox.insertBefore(cam, camBox.firstChild);
-      ['ui-top', 'ui-bottom', 'badge', 'hint'].forEach(function (id) { $(id).classList.add('hidden'); });
+      tillampaZoom();
+      $('varden').classList.add('hidden');
+      ['ui-top', 'ui-bottom', 'badge', 'hint', 'kal-panel'].forEach(function (id) { $(id).classList.add('hidden'); });
       splash.classList.remove('hidden');
       startBtn.classList.add('enabled');
       $('splash-status').textContent = '';
@@ -545,7 +795,8 @@
       camEl.setAttribute('wasd-controls', 'enabled: true; acceleration: 120; fly: true');
       var rutnat = new THREE.GridHelper(300, 60, 0x9fb8cc, 0x7f95a5);
       sceneRoot.object3D.add(rutnat);
-      riktningBas = skylt.riktning + (skylt.offset || 0) + HEADING_OFFSET; vridning = 0; tillampaRiktning();
+      riktningBas = skylt.riktning + (skylt.offset || 0) + HEADING_OFFSET;
+      vridning = kalMode ? sparadVrid : 0; tillampaRiktning();
       if (hojd > 5) {
         setTimeout(function () {
           var lc = camEl.components['look-controls'];
