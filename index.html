@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0f2233">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>Fabriksdammen – ny åfåra i AR</title>
+
+  <!--
+    Versionshandskakning – tvingar iOS Safari att ladda senaste sidan.
+    APP_VERSION måste matcha version.json. Vid varje skarp ändring: höj BÅDA.
+  -->
+  <script>
+    var APP_VERSION = '2026-11-09a';
+    (function () {
+      try {
+        if (location.search.indexOf('test=') !== -1) return;   /* testläget laddas om för hand */
+        fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d && d.version && d.version !== APP_VERSION &&
+                location.search.indexOf('v=' + d.version) === -1) {
+              var q = location.search.replace(/[?&]v=[^&]*/, '').replace(/^&/, '?');
+              location.replace(location.pathname + (q ? q + '&' : '?') + 'v=' + d.version);
+            }
+          })
+          .catch(function () { /* offline: kör vidare med cachad version */ });
+      } catch (e) { /* ignorera */ }
+    })();
+  </script>
+
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <style>
+    html, body { margin: 0; overflow: hidden; background: #0f2233; font-family: sans-serif; }
+
+    #cam { object-fit: cover; pointer-events: none; background: #000; }
+    #cam.boxed { position: relative; width: 100%; height: 100%; }
+    #cam.fullscreen { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
+
+    #ar-scene { position: fixed !important; inset: 0 !important; z-index: 1 !important; }
+    #ar-scene .a-canvas, canvas.a-canvas { pointer-events: none !important; }
+    body.test #ar-scene .a-canvas, body.test canvas.a-canvas { pointer-events: auto !important; }
+
+    /* ── Startskärm ── */
+    #splash {
+      position: fixed; inset: 0; background: #0f2233; color: #fff;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 12px; z-index: 9999; padding: 20px; text-align: center; overflow-y: auto;
+    }
+    #splash h1 { margin: 0; font-size: 1.45rem; color: #fff; }
+    #splash .forslag { margin: 0; font-size: 1.05rem; color: #ff9a5c; font-weight: bold; }
+    #splash .skylt { margin: 0; font-size: 0.85rem; color: #9fb8cc; }
+    #splash .instruction { font-size: 1.02rem; color: #ffd27a; margin: 4px 0 0; font-weight: bold; }
+    #splash .instruction span { font-weight: normal; font-size: 0.9em; color: #fff; }
+    #cam-box {
+      width: min(80vw, 340px); aspect-ratio: 4 / 3;   /* liggande ruta: fisken är bred */
+      border: 4px dashed #ff9a5c; border-radius: 16px;
+      overflow: hidden; position: relative; background: #000;
+    }
+    /* Vertikal mittlinje: centrera fisken i sidled mot den */
+    #cam-box::after {
+      content: ""; position: absolute; top: 0; bottom: 0; left: 50%;
+      width: 2px; margin-left: -1px; z-index: 2; pointer-events: none;
+      background: rgba(255,154,92,0.8);
+    }
+    #cam-hint {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #888; font-size: 0.9rem; pointer-events: none; padding: 20px; text-align: center;
+    }
+    #start-btn {
+      padding: 15px 44px; font-size: 1.15rem; font-weight: bold; border: none; border-radius: 14px;
+      color: #fff; cursor: pointer; background: linear-gradient(90deg, #e6550d, #ff9a5c);
+      opacity: 0.4; pointer-events: none; transition: opacity 0.3s;
+    }
+    #start-btn.enabled { opacity: 1; pointer-events: all; }
+    #byt-forslag { background: none; border: none; color: #9fb8cc; text-decoration: underline;
+                   font-size: 0.85rem; cursor: pointer; }
+    #splash-status { font-size: 0.85rem; color: #9fb8cc; min-height: 1.2em; }
+    #version-stamp { color: #1f3a50; font-size: 0.62rem; font-family: monospace; }
+
+    /* domOverlay-rot: MÅSTE vara ett fast helskärmselement, annars kollapsar WebXR DOM-overlay och
+       kontrollerna syns inte på Android. Barnen ligger 'absolute' relativt roten. */
+    #ui-overlay { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
+    #ui-top {
+      position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between;
+      align-items: flex-start; padding: 12px 14px; pointer-events: none;
+    }
+    #ui-top button, .knapp {
+      pointer-events: all; padding: 9px 14px; border: none; border-radius: 10px;
+      background: rgba(0,0,0,0.62); color: #fff; font-size: 0.88rem; cursor: pointer;
+    }
+    #badge {
+      position: absolute; top: 58px; left: 50%; transform: translateX(-50%); max-width: 92vw;
+      padding: 6px 12px; border-radius: 999px; font-size: 0.8rem; white-space: nowrap;
+      background: rgba(0,0,0,0.6); color: #ffb27a; pointer-events: none;
+    }
+    #ui-bottom {
+      position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column;
+      align-items: center; gap: 8px; padding: 10px 10px calc(14px + env(safe-area-inset-bottom));
+      pointer-events: none;
+    }
+    .rad { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    .knapp.pa { background: rgba(230,85,13,0.85); }
+    .knapp.vatten.pa { background: rgba(33,113,181,0.9); }
+    .vrid { display: flex; align-items: center; gap: 10px; pointer-events: all;
+            background: rgba(0,0,0,0.55); border-radius: 999px; padding: 4px 8px; }
+    .vrid button { width: 42px; height: 42px; border: none; border-radius: 50%;
+                   background: rgba(255,255,255,0.16); color: #fff; font-size: 1.1rem; cursor: pointer; }
+    #vrid-varde { color: #cfe0ee; font-size: 0.82rem; min-width: 5.5em; text-align: center; }
+    #hint {
+      position: absolute; left: 50%; bottom: 170px; transform: translateX(-50%); max-width: 88vw;
+      text-align: center; background: rgba(0,0,0,0.74); color: #fff; font-size: 0.92rem;
+      line-height: 1.45; padding: 12px 18px; border-radius: 12px; pointer-events: none;
+    }
+    #hint small { color: #ffd27a; font-size: 0.82rem; }
+
+    #error-overlay {
+      position: fixed; inset: 0; background: #0f2233; color: #fff; display: flex;
+      flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      z-index: 99999; padding: 32px; text-align: center;
+    }
+    #error-overlay h2 { color: #ff8a6b; margin: 0; }
+    #error-overlay a  { color: #aaa; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <a-scene
+    id="ar-scene"
+    embedded
+    webxr="requiredFeatures: local-floor; optionalFeatures: dom-overlay; overlayElement: #ui-overlay"
+    renderer="antialias: true; alpha: true; colorManagement: true"
+    background="transparent: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+    loading-screen="enabled: false">
+    <a-entity id="scene-root"></a-entity>
+    <a-camera look-controls="magicWindowTrackingEnabled: true; touchEnabled: false"
+              wasd-controls="enabled: false"
+              position="0 1.6 0"></a-camera>
+  </a-scene>
+
+  <div id="splash">
+    <h1>Fabriksdammen – ny åfåra</h1>
+    <p class="forslag" id="splash-forslag">–</p>
+    <p class="skylt" id="splash-skylt">–</p>
+    <p class="instruction" id="instruction">Passa in <u>hela</u> fisken i rutan</p>
+    <div id="cam-box">
+      <video id="cam" class="boxed" autoplay playsinline muted></video>
+      <div id="cam-hint">Startar kameran...</div>
+    </div>
+    <button id="start-btn">Starta AR</button>
+    <button id="byt-forslag">–</button>
+    <div id="splash-status"></div>
+    <div id="version-stamp"></div>
+  </div>
+
+  <div id="error-overlay" class="hidden">
+    <h2>Något gick fel</h2>
+    <p id="error-message"></p>
+    <a href="javascript:location.reload()">↺ Försök igen</a>
+  </div>
+
+  <div id="ui-overlay">
+    <div id="ui-top" class="hidden">
+      <button id="exit-btn">✕ Avsluta</button>
+      <button id="recal-btn">Passa in fisken igen ↺</button>
+    </div>
+    <div id="badge" class="hidden"></div>
+    <div id="hint" class="hidden"></div>
+    <div id="ui-bottom" class="hidden">
+      <div class="rad">
+        <button class="knapp" id="btn-forslag">–</button>
+        <button class="knapp pa" id="btn-linje">Linjen: 1,5 m över mark</button>
+        <button class="knapp vatten" id="btn-vatten">Visa vattenytan</button>
+      </div>
+      <div class="vrid">
+        <button id="vrid-v" aria-label="Vrid moturs">◀</button>
+        <span id="vrid-varde">Vrid 0°</span>
+        <button id="vrid-h" aria-label="Vrid medurs">▶</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /*
+     * FABRIKSDAMMEN AR — förslag till ny åfåra från dammen till Emån (Bodafors).
+     *
+     * Kalibrering som Sommargatans clown: besökaren står på en inmätt ståpunkt framför en skylt med en
+     * fisk och passar in hela fisken i rutan. Då är position och riktning kända (riktningen
+     * ståpunkt→skylt i SWEREF 99 TM). "Starta AR" låser kalibreringen:
+     *   Android (WebXR/ARCore): rotY = riktning + justering; man kan gå längs fåran.
+     *   iPhone (gyro):           rotY = riktning + kamerans yaw + justering; stå still och vrid dig.
+     * URL: ?s=1|2 (skylt) &f=1|2 (förslag). ?test=1 visar scenen utan kamera (granskning på dator),
+     * &hojd=N lyfter testkameran N m.
+     * Data: assets/fabriksdammen.json (skript/ar_export.py i projektet).
+     */
+    var HEADING_OFFSET = 0;     /* gemensam riktningsrättning (grader, +medurs); per skylt finns 'offset' i datan */
+    var LYFT = 1.5;             /* den svävande linjens höjd över dagens mark (m) */
+    var STOLPE = LYFT + 0.35;   /* markeringsstolparnas höjd; etiketten sitter i toppen */
+    var ORANGE = '#e6550d', MORKORANGE = '#a63603', BLA = '#2171b5';
+
+    var params = new URLSearchParams(location.search);
+    var skyltNr = params.get('s') === '2' ? '2' : '1';
+    var forslagNr = params.get('f') === '2' ? '2' : '1';
+    var testMode = params.get('test') === '1';
+    var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+    var data = null, skylt = null;
+    var grupper = {};           /* grupper[nr] = {flyt, mark, vatten, stolpar} */
+    var kontrollGrupp = null;
+    var linjePaMark = false, visaVatten = false;
+    var riktningBas = 0, vridning = 0;
+    var dataReady = false, camReady = false, xrSupported = false, xrMode = false;
+
+    var $ = function (id) { return document.getElementById(id); };
+    var splash = $('splash'), startBtn = $('start-btn'), cam = $('cam'), camBox = $('cam-box');
+    var scene = $('ar-scene'), sceneRoot = $('scene-root'), camEl = document.querySelector('a-camera');
+
+    $('version-stamp').textContent = 'v' + APP_VERSION;
+    window.addEventListener('unhandledrejection', function (e) {
+      showError('Oväntat fel: ' + ((e.reason && e.reason.message) || e.reason));
+    });
+
+    function sv(v, d) { return v.toFixed(d).replace('.', ','); }
+
+    /* SWEREF 99 TM → scenen: +X öst, −Z norr, +Y upp; origo = ståpunkten på marken */
+    function lokal(e, n, z) {
+      return new THREE.Vector3(e - skylt.sta[0], z - skylt.sta[2], -(n - skylt.sta[1]));
+    }
+
+    /* ── Geometri ── */
+    function tub(punkter, radie, farg, opacitet) {
+      var vag = new THREE.CurvePath();
+      for (var i = 1; i < punkter.length; i++) vag.add(new THREE.LineCurve3(punkter[i - 1], punkter[i]));
+      var geo = new THREE.TubeGeometry(vag, punkter.length * 2, radie, 6, false);
+      var mat = new THREE.MeshBasicMaterial({ color: farg, transparent: opacitet < 1, opacity: opacitet });
+      return new THREE.Mesh(geo, mat);
+    }
+    function stolpe(fran, till, radie, farg, opacitet) {
+      var h = Math.max(0.01, till.y - fran.y);
+      var mat = new THREE.MeshBasicMaterial({ color: farg, transparent: opacitet < 1, opacity: opacitet });
+      var m = new THREE.Mesh(new THREE.CylinderGeometry(radie, radie, h, 8), mat);
+      m.position.set(fran.x, fran.y + h / 2, fran.z);
+      return m;
+    }
+    function klot(p, radie, farg) {
+      var m = new THREE.Mesh(new THREE.SphereGeometry(radie, 16, 12),
+                             new THREE.MeshBasicMaterial({ color: farg }));
+      m.position.copy(p);
+      return m;
+    }
+    /* Textetikett som alltid vänder sig mot kameran. Storleken på skärmen är konstant på nära håll och
+       krymper längre bort; långt bort visas bara första raden (kortRader), så att etiketter i samma
+       siktlinje inte staplas oläsligt. Närmare etiketter ritas överst. */
+    var etiketter = [];
+    var KORT_FRAN = 24, KRYMP_FRAN = 18, MINSTA = 0.62;
+    function etikett(rader, opt, kortRader) {
+      opt = opt || {};
+      var full = etikettBild(rader, opt);
+      var sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: full.tex, sizeAttenuation: false, depthTest: false, transparent: true }));
+      sp.center.set(0.5, 0);
+      sp.scale.set(full.sx, full.sy, 1);
+      sp.renderOrder = 10;
+      etiketter.push({ sp: sp, full: full, kort: kortRader ? etikettBild(kortRader, opt) : null, visar: full });
+      return sp;
+    }
+    var _v = null;
+    function skalaEtiketter() {
+      if (!scene.camera || !etiketter.length) return;
+      _v = _v || new THREE.Vector3();
+      var kam = new THREE.Vector3();
+      scene.camera.getWorldPosition(kam);
+      etiketter.forEach(function (e) {
+        if (!e.sp.parent || !e.sp.parent.visible) return;
+        e.sp.getWorldPosition(_v);
+        var d = _v.distanceTo(kam);
+        var bild = (e.kort && d > KORT_FRAN) ? e.kort : e.full;
+        if (bild !== e.visar) { e.sp.material.map = bild.tex; e.sp.material.needsUpdate = true; e.visar = bild; }
+        var f = Math.max(MINSTA, Math.min(1, KRYMP_FRAN / d));
+        e.sp.scale.set(bild.sx * f, bild.sy * f, 1);
+        e.sp.renderOrder = 10 + Math.max(0, Math.round(2000 - d * 10));
+      });
+    }
+    AFRAME.registerComponent('etikett-skala', { tick: skalaEtiketter });
+    function etikettBild(rader, opt) {
+      var fs = 46, lh = Math.round(fs * 1.28), pad = 18;
+      var c = document.createElement('canvas'), ctx = c.getContext('2d');
+      var font = function (i) { return (i === 0 ? 'bold ' + Math.round(fs * 1.12) : fs) + 'px sans-serif'; };
+      var bredd = 0;
+      rader.forEach(function (t, i) { ctx.font = font(i); bredd = Math.max(bredd, ctx.measureText(t).width); });
+      c.width = Math.ceil(bredd + pad * 2); c.height = Math.ceil(lh * rader.length + pad * 1.4);
+      ctx = c.getContext('2d');
+      var r = 18, w = c.width, h = c.height;
+      ctx.fillStyle = opt.bakgrund || 'rgba(15,25,35,0.80)';
+      ctx.beginPath();
+      ctx.moveTo(r, 0); ctx.lineTo(w - r, 0); ctx.quadraticCurveTo(w, 0, w, r);
+      ctx.lineTo(w, h - r); ctx.quadraticCurveTo(w, h, w - r, h); ctx.lineTo(r, h);
+      ctx.quadraticCurveTo(0, h, 0, h - r); ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
+      ctx.fill();
+      ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+      rader.forEach(function (t, i) {
+        ctx.font = font(i);
+        ctx.fillStyle = i === 0 ? (opt.farg || '#ffb27a') : '#ffffff';
+        ctx.fillText(t, w / 2, pad * 0.7 + lh * (i + 0.5));
+      });
+      var tex = new THREE.CanvasTexture(c);
+      if ('colorSpace' in tex) tex.colorSpace = THREE.SRGBColorSpace;
+      tex.minFilter = THREE.LinearFilter;
+      var hojd = (opt.storlek || 0.032) * (h / lh);
+      return { tex: tex, sx: hojd * w / h, sy: hojd };
+    }
+
+    function byggForslag(nr) {
+      var F = data.forslag[nr];
+      var g = { flyt: new THREE.Group(), mark: new THREE.Group(), vatten: new THREE.Group(), stolpar: new THREE.Group() };
+      var flyt = F.punkter.map(function (p) { return lokal(p[0], p[1], p[2] + LYFT); });
+      var paMark = F.punkter.map(function (p) { return lokal(p[0], p[1], p[2] + 0.04); });
+      var vatten = F.punkter.map(function (p) { return lokal(p[0], p[1], p[3]); });
+      g.flyt.add(tub(flyt, 0.06, ORANGE, 1));
+      g.mark.add(tub(paMark, 0.07, ORANGE, 1));
+      g.vatten.add(tub(vatten, 0.045, BLA, 0.9));
+
+      /* Avståndsmarkeringar var 25:e m som i kartan, med planerad vattenyta och djup under mark */
+      F.markorer.forEach(function (m) {
+        var fot = lokal(m.e, m.n, m.mark), topp = lokal(m.e, m.n, m.mark + STOLPE);
+        g.stolpar.add(stolpe(fot, topp, 0.025, MORKORANGE, 1));
+        var djup = m.mark - m.vy;
+        var lbl = etikett([m.s + ' m', 'vattenyta ' + sv(m.vy, 2) + ' m',
+                           sv(Math.abs(djup), 1) + ' m ' + (djup >= 0 ? 'under' : 'över') + ' mark'], {}, [m.s + ' m']);
+        lbl.position.copy(topp);
+        g.stolpar.add(lbl);
+        g.vatten.add(stolpe(lokal(m.e, m.n, Math.min(m.vy, m.mark)), lokal(m.e, m.n, Math.max(m.vy, m.mark)),
+                            0.02, BLA, 0.75));
+      });
+
+      /* Intag och anslutning, med samma texter som i kartan */
+      [[F.intag, ['Intag', sv(F.intag.vy, 1) + ' m']],
+       [F.anslutning, ['Anslutning till ån', sv(F.anslutning.vy, 2) + ' m']]].forEach(function (par) {
+        var p = par[0], fot = lokal(p.e, p.n, p.mark), topp = lokal(p.e, p.n, p.mark + STOLPE + 0.25);
+        g.stolpar.add(stolpe(fot, topp, 0.04, '#ffffff', 1));
+        var lbl = etikett(par[1], { farg: '#ffffff', bakgrund: 'rgba(166,54,3,0.88)', storlek: 0.036 });
+        lbl.position.copy(topp);
+        g.stolpar.add(lbl);
+        g.flyt.add(klot(lokal(p.e, p.n, p.mark + LYFT), 0.13, '#ffffff'));
+        g.mark.add(klot(lokal(p.e, p.n, p.mark + 0.04), 0.13, '#ffffff'));
+        g.vatten.add(klot(lokal(p.e, p.n, p.vy), 0.09, BLA));
+      });
+
+      var rot = new THREE.Group();
+      rot.add(g.flyt, g.mark, g.vatten, g.stolpar);
+      g.rot = rot;
+      return g;
+    }
+
+    function byggKontroll() {
+      /* Vita stolpar vid hushörn och småhus: står de vid de riktiga husen stämmer riktningen */
+      var grp = new THREE.Group();
+      data.kontroll.forEach(function (k) {
+        var fot = lokal(k.e, k.n, k.mark), topp = lokal(k.e, k.n, k.mark + 2.5);
+        grp.add(stolpe(fot, topp, 0.03, '#ffffff', 0.9));
+        if (k.namn) {
+          var lbl = etikett([k.namn], { farg: '#ffffff', storlek: 0.026, bakgrund: 'rgba(40,40,40,0.7)' });
+          lbl.position.copy(topp);
+          grp.add(lbl);
+        }
+      });
+      return grp;
+    }
+
+    function byggScen() {
+      var rot = new THREE.Group();
+      ['1', '2'].forEach(function (nr) { grupper[nr] = byggForslag(nr); rot.add(grupper[nr].rot); });
+      kontrollGrupp = byggKontroll();
+      rot.add(kontrollGrupp);
+      sceneRoot.setObject3D('fabriksdammen', rot);
+      sceneRoot.setAttribute('etikett-skala', '');   /* registrerad i skriptet, därför inte i markeringen */
+      uppdateraVisning();
+    }
+
+    function uppdateraVisning() {
+      ['1', '2'].forEach(function (nr) {
+        var g = grupper[nr], aktiv = nr === forslagNr;
+        g.rot.visible = aktiv;
+        g.flyt.visible = !linjePaMark;
+        g.mark.visible = linjePaMark;
+        g.vatten.visible = visaVatten;
+      });
+      var F = data.forslag[forslagNr], annan = forslagNr === '1' ? '2' : '1';
+      $('badge').textContent = F.namn + ' · ca ' + F.langd + ' m · ' + sv(F.lutning, 1) + ' %';
+      $('btn-forslag').textContent = 'Visa förslag ' + annan;
+      $('btn-linje').textContent = linjePaMark ? 'Linjen: på marken' : 'Linjen: 1,5 m över mark';
+      $('btn-vatten').textContent = visaVatten ? 'Vattenytan: på' : 'Visa vattenytan';
+      $('btn-vatten').classList.toggle('pa', visaVatten);
+      $('splash-forslag').textContent = F.namn;
+      $('byt-forslag').textContent = 'Byt till förslag ' + annan;
+    }
+
+    function tillampaRiktning() {
+      sceneRoot.setAttribute('rotation', '0 ' + (riktningBas + vridning).toFixed(2) + ' 0');
+      $('vrid-varde').textContent = 'Vrid ' + (vridning > 0 ? '+' : '') + vridning + '°';
+    }
+
+    /* ── Laddning ── */
+    fetch('assets/fabriksdammen.json', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('fabriksdammen.json saknas'); return r.json(); })
+      .then(function (d) {
+        data = d;
+        skylt = d.skyltar[skyltNr];
+        $('splash-skylt').textContent = skylt.namn;
+        byggScen();
+        dataReady = true;
+        checkReady();
+        if (testMode) startaTest();
+      })
+      .catch(function (err) { showError('Laddningsfel: ' + err.message); });
+
+    (function () {
+      var instr = $('instruction');
+      instr.innerHTML = 'Passa in <u>hela</u> fisken i rutan, med mittlinjen mitt på fisken.<br><span>' +
+        (isIOS ? 'Tryck sedan på Starta AR och se dig omkring från där du står.'
+               : 'Tryck sedan på Starta AR. Du kan gå längs fåran.') + '</span>';
+    })();
+
+    if (!testMode) {
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      }).then(function (stream) {
+        cam.srcObject = stream;
+        $('cam-hint').classList.add('hidden');
+        camReady = true;
+        checkReady();
+      }).catch(function () {
+        $('cam-hint').textContent = 'Kameran nekades – tillåt kamera i webbläsarens inställningar och ladda om sidan.';
+      });
+      if (navigator.xr) {
+        navigator.xr.isSessionSupported('immersive-ar').then(function (ok) { xrSupported = ok; });
+      }
+    }
+
+    function checkReady() {
+      if (dataReady && camReady) startBtn.classList.add('enabled');
+    }
+
+    function waitForOrientation() {
+      return new Promise(function (resolve) {
+        var done = false;
+        function finish() { if (!done) { done = true; resolve(); } }
+        window.addEventListener('deviceorientation', finish, { once: true });
+        setTimeout(finish, 600);
+      });
+    }
+
+    /* ── Starta AR: lås kalibreringen ur fisk-inpassningen ── */
+    startBtn.addEventListener('click', async function () {
+      startBtn.classList.remove('enabled');
+      var bas = skylt.riktning + (skylt.offset || 0) + HEADING_OFFSET;
+
+      if (xrSupported) {
+        /* WebXR (Android/ARCore): rymden förankras med −Z = blickriktningen vid sessionsstart, alltså mot
+           fisken. rotY = riktningen rakt av, origo = ståpunkten. ARCore håller sedan allt på plats. */
+        xrMode = true;
+        $('splash-status').textContent = 'Håll kvar siktet på fisken...';
+        riktningBas = bas; vridning = 0; tillampaRiktning();
+        sceneRoot.setAttribute('position', '0 0 0');
+        if (cam.srcObject) { cam.srcObject.getTracks().forEach(function (t) { t.stop(); }); cam.srcObject = null; }
+        scene.enterAR();
+        return;   /* enter-vr tar över */
+      }
+
+      /* iPhone m.fl.: inbäddat läge med gyrobaserad rotation */
+      $('splash-status').textContent = 'Startar...';
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        try {
+          var perm = await DeviceOrientationEvent.requestPermission();
+          if (perm !== 'granted') { showError('Rörelsetillstånd krävs för AR. Ladda om och tillåt.'); return; }
+        } catch (e) { /* ignorera */ }
+      }
+      await waitForOrientation();
+      await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); });
+      var psi = camEl.object3D.rotation.y * 180 / Math.PI;
+      riktningBas = bas + psi; vridning = 0; tillampaRiktning();
+
+      document.body.appendChild(cam);
+      cam.classList.remove('boxed'); cam.classList.add('fullscreen');
+      visaArUI();
+    });
+
+    function visaArUI() {
+      splash.classList.add('hidden');
+      ['ui-top', 'ui-bottom', 'badge'].forEach(function (id) { $(id).classList.remove('hidden'); });
+      var hint = $('hint');
+      hint.innerHTML = 'Orange linje = förslagets sträckning, 1,5 m över dagens mark. Vita stolpar = hushörn.<br>' +
+        '<small>Står stolparna fel mot husen: vrid med ◀ ▶.' +
+        (isIOS && !xrMode ? ' På iPhone: stå kvar och vrid dig.' : '') + '</small>';
+      hint.classList.remove('hidden');
+      setTimeout(function () { hint.classList.add('hidden'); }, 9000);
+    }
+
+    scene.addEventListener('enter-vr', function () { if (xrMode) visaArUI(); });
+    scene.addEventListener('exit-vr', function () { if (xrMode) location.reload(); });
+
+    /* ── Knappar ── */
+    $('btn-forslag').addEventListener('click', function () {
+      forslagNr = forslagNr === '1' ? '2' : '1'; uppdateraVisning();
+    });
+    $('byt-forslag').addEventListener('click', function () {
+      forslagNr = forslagNr === '1' ? '2' : '1'; uppdateraVisning();
+      params.set('f', forslagNr); history.replaceState(null, '', '?' + params.toString());
+    });
+    $('btn-linje').addEventListener('click', function () { linjePaMark = !linjePaMark; uppdateraVisning(); });
+    $('btn-vatten').addEventListener('click', function () { visaVatten = !visaVatten; uppdateraVisning(); });
+    $('vrid-v').addEventListener('click', function () { vridning -= 1; tillampaRiktning(); });
+    $('vrid-h').addEventListener('click', function () { vridning += 1; tillampaRiktning(); });
+
+    $('recal-btn').addEventListener('click', function () {
+      if (xrMode || testMode) { location.reload(); return; }
+      cam.classList.remove('fullscreen'); cam.classList.add('boxed');
+      camBox.insertBefore(cam, camBox.firstChild);
+      ['ui-top', 'ui-bottom', 'badge', 'hint'].forEach(function (id) { $(id).classList.add('hidden'); });
+      splash.classList.remove('hidden');
+      startBtn.classList.add('enabled');
+      $('splash-status').textContent = '';
+    });
+    $('exit-btn').addEventListener('click', function () {
+      if (cam.srcObject) cam.srcObject.getTracks().forEach(function (t) { t.stop(); });
+      location.reload();
+    });
+
+    /* ── Testläge: scenen utan kamera, för granskning på dator (dra med musen för att titta) ── */
+    function startaTest() {
+      document.body.classList.add('test');
+      scene.setAttribute('background', 'color: #5d7484');
+      var hojd = parseFloat(params.get('hojd')) || 1.6;
+      camEl.setAttribute('position', '0 ' + hojd + ' 0');
+      camEl.setAttribute('look-controls', 'magicWindowTrackingEnabled: false; touchEnabled: true; mouseEnabled: true');
+      camEl.setAttribute('wasd-controls', 'enabled: true; acceleration: 120; fly: true');
+      var rutnat = new THREE.GridHelper(300, 60, 0x9fb8cc, 0x7f95a5);
+      sceneRoot.object3D.add(rutnat);
+      riktningBas = skylt.riktning + (skylt.offset || 0) + HEADING_OFFSET; vridning = 0; tillampaRiktning();
+      if (hojd > 5) {
+        setTimeout(function () {
+          var lc = camEl.components['look-controls'];
+          if (lc) lc.pitchObject.rotation.x = -Math.atan2(hojd, 45);
+        }, 300);
+      }
+      $('cam-hint').textContent = 'Testläge';
+      visaArUI();
+    }
+
+    function showError(msg) {
+      splash.classList.add('hidden');
+      $('error-message').textContent = msg;
+      $('error-overlay').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
